@@ -151,6 +151,8 @@ class SQLExploitsDB(object):
         self._csv_file = source_csv
 
     def gen_db(self, db_file):
+        self._db_file = db_file
+
         self._connect()
         self._create_table()
         self._insert_data_from_csv()
@@ -177,19 +179,21 @@ class SQLExploitsDB(object):
             {} TEXT,
             {} INTEGER
         )
-        """.format(TABLE_EXPLOIT, COL_ID, COL_FILE, COL_DESCRIPTION, COL_DATE, COL_AUTHOR, COL_PLATFORM, COL_TYPE, COL_PORT))
+        """.format(self.TABLE_EXPLOIT, self.COL_ID, self.COL_FILE, self.COL_DESCRIPTION, self.COL_DATE, self.COL_AUTHOR, self.COL_PLATFORM, self.COL_TYPE, self.COL_PORT))
         
         self._commit()
     
     def _insert_data_from_csv(self):
+        print("INSERTING")
         c = self._conn.cursor()
 
         csv_file = open(self._csv_file)
         
         csv_file.readline() # skip column names
         for line in csv_file:
+            line = line.rstrip()
             values = tuple(line.split(","))
-            c.execute("INSERT INTO {} VALUES (?, ?, ?, ?, ?, ?, ?, ?)".format(EXPLOIT_TABLE), values)
+            c.execute("INSERT INTO {} VALUES (?, ?, ?, ?, ?, ?, ?, ?)".format(self.TABLE_EXPLOIT), values)
 
         csv_file.close()
 
@@ -320,12 +324,12 @@ def main():
     if arg_archive:
         download_archive()
         extract_archive()
-        sql_db.gen_db(SQLITE_DB_FILE)
-    elif arg_sqlite or not file_exists(SQLITE_DB_FILE):
+        sql_db.gen_db(EXPLOITS_DB)
+    elif arg_sqlite or not file_exists(EXPLOITS_DB):
         if not file_exists(EXPLOITS_CSV_PATH):
             download_archive()
             extract_archive()
-        sql_db.gen_db(SQLITE_DB_FILE)
+        sql_db.gen_db(EXPLOITS_DB)
 
     # 3. Check if search query exists
 
