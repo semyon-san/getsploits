@@ -17,14 +17,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import sys
 import urllib.request
 import argparse
 import zipfile
+import sqlite3
+import sys
 import os
 
 EXPLOITS_ARCHIVE_URL = "https://github.com/offensive-security/exploit-database/archive/master.zip"
 EXPLOITS_ARCHIVE_FILENAME = "exploits-archive.zip"
+EXPLOITS_ARCHIVE_DIR = "exploit-database-master"
+EXPLOITS_CSV = "files.csv"
+EXPLOITS_CSV_PATH = EXPLOITS_ARCHIVE_DIR + os.sep + EXPLOITS_CSV
+EXPLOITS_DB = "exploits.db"
 
 class ParamNames:
     TITLE    = "description"
@@ -126,6 +131,72 @@ class Types(Param):
         "webapps"   : "6"
     }
 
+class SQLExploitsDB(object):
+    """ Creates and queries sql databases """
+
+    TABLE_EXPLOIT = "Exploit"
+
+    COL_ID = "id"
+    COL_FILE = "file"
+    COL_DESCRIPTION = "description"
+    COL_DATE = "date"
+    COL_AUTHOR = "author"
+    COL_PLATFORM = "platform"
+    COL_TYPE = "type"
+    COL_PORT = "port"
+
+    def __init__(self, source_csv):
+        self._conn = None
+        self._db_file = None
+        self._csv_file = source_csv
+
+    def gen_db(self, db_file):
+        self._connect()
+        self._create_table()
+        self._insert_data_from_csv()
+        self._disconnect()
+
+    def _connect(self):
+        self._conn = sqlite3.connect(self._db_file)
+
+    def _commit(self):
+        self._conn.commit()
+
+    def _disconnect(self):
+        self._conn.close()
+
+    def _create_table(self):
+        c = self._conn.cursor()
+        c.execute("""CREATE TABLE {} (
+            {} INTEGER PRIMARY KEY,
+            {} TEXT,
+            {} TEXT,
+            {} TEXT,
+            {} TEXT,
+            {} TEXT,
+            {} TEXT,
+            {} INTEGER
+        )
+        """.format(TABLE_EXPLOIT, COL_ID, COL_FILE, COL_DESCRIPTION, COL_DATE, COL_AUTHOR, COL_PLATFORM, COL_TYPE, COL_PORT))
+        
+        self._commit()
+    
+    def _insert_data_from_csv(self):
+        c = self._conn.cursor()
+
+        csv_file = open(self._csv_file)
+        
+        csv_file.readline() # skip column names
+        for line in csv_file:
+            values = tuple(line.split(","))
+            c.execute("INSERT INTO {} VALUES (?, ?, ?, ?, ?, ?, ?, ?)".format(EXPLOIT_TABLE), values)
+
+        csv_file.close()
+
+        self._commit()
+
+### Argument parsing ###
+
 def parse_args(argv):
     usage = "getsploits <title> [options]"
 
@@ -169,6 +240,7 @@ def make_params(args):
     }
     return params
 
+################
 
 
 ### functions ###
@@ -230,9 +302,6 @@ def extract_archive():
     with zipfile.ZipFile(EXPLOITS_ARCHIVE_FILENAME, "r") as z:
         z.extractall()
 
-def gen_sqlite():
-    pass
-
 #################
 
 def main():
@@ -245,15 +314,18 @@ def main():
     arg_archive = args["archive"]
     arg_sqlite = args["sqlite"]
 
+
+    sql_db = SQLExploitsDB(EXPLOITS_CSV_PATH)
+
     if arg_archive:
         download_archive()
         extract_archive()
-        gen_sqlite()
+        sql_db.gen_db(SQLITE_DB_FILE)
     elif arg_sqlite or not file_exists(SQLITE_DB_FILE):
-        if not file_exists(CSV_FILE):
+        if not file_exists(EXPLOITS_CSV_PATH):
             download_archive()
             extract_archive()
-        gen_sqlite()
+        sql_db.gen_db(SQLITE_DB_FILE)
 
     # 3. Check if search query exists
 
@@ -263,7 +335,7 @@ def main():
         sys.exit(1)
 
     # 4. Search
-    
+
     pass
 
 if __name__ == "__main__":
