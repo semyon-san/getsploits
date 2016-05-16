@@ -21,7 +21,9 @@ import urllib.request
 import argparse
 import zipfile
 import sqlite3
+import csv
 import sys
+import re
 import os
 
 EXPLOITS_ARCHIVE_URL = "https://github.com/offensive-security/exploit-database/archive/master.zip"
@@ -151,6 +153,9 @@ class SQLExploitsDB(object):
         self._csv_file = source_csv
 
     def gen_db(self, db_file):
+        if file_exists(db_file):
+            return
+
         self._db_file = db_file
 
         self._connect()
@@ -190,9 +195,8 @@ class SQLExploitsDB(object):
         csv_file = open(self._csv_file)
         
         csv_file.readline() # skip column names
-        for line in csv_file:
-            line = line.rstrip()
-            values = tuple(line.split(","))
+        reader = csv.reader(csv_file)
+        for values in reader:
             c.execute("INSERT INTO {} VALUES (?, ?, ?, ?, ?, ?, ?, ?)".format(self.TABLE_EXPLOIT), values)
 
         csv_file.close()
@@ -252,6 +256,12 @@ def make_params(args):
 def file_exists(path):
     return os.path.isfile(path)
 
+def delete_file(path):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
 def ask_yes_no(message, default="N"):
     while True:
         print(message, end="")
@@ -306,6 +316,7 @@ def extract_archive():
     with zipfile.ZipFile(EXPLOITS_ARCHIVE_FILENAME, "r") as z:
         z.extractall()
 
+
 #################
 
 def main():
@@ -329,6 +340,7 @@ def main():
         if not file_exists(EXPLOITS_CSV_PATH):
             download_archive()
             extract_archive()
+        delete_file(EXPLOITS_DB)
         sql_db.gen_db(EXPLOITS_DB)
 
     # 3. Check if search query exists
