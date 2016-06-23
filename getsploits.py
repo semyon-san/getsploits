@@ -29,9 +29,9 @@ import os
 EXPLOITS_ARCHIVE_URL = "https://github.com/offensive-security/exploit-database/archive/master.zip"
 EXPLOITS_ARCHIVE_FILENAME = "exploits-archive.zip"
 EXPLOITS_ARCHIVE_DIR = "exploit-database-master"
-EXPLOITS_CSV = "files.csv"
-EXPLOITS_CSV_PATH = EXPLOITS_ARCHIVE_DIR + os.sep + EXPLOITS_CSV
-EXPLOITS_DB = "exploits.db"
+EXPLOITS_CSV_FILENAME = "files.csv"
+EXPLOITS_CSV_PATH = EXPLOITS_ARCHIVE_DIR + os.sep + EXPLOITS_CSV_FILENAME
+EXPLOITS_DB_FILENAME = "exploits.db"
 
 class ParamNames:
     TITLE    = "description"
@@ -147,21 +147,38 @@ class SQLExploitsDB(object):
     COL_TYPE = "type"
     COL_PORT = "port"
 
-    def __init__(self, source_csv):
+    def __init__(self, source_csv, db_file):
         self._conn = None
-        self._db_file = None
+        self._db_file = db_file
         self._csv_file = source_csv
 
-    def gen_db(self, db_file):
-        if file_exists(db_file):
-            return
-
-        self._db_file = db_file
-
+    def gen_db(self):
         self._connect()
         self._create_table()
         self._insert_data_from_csv()
         self._disconnect()
+
+    def find(self, column, value, text=""):
+        """ Returns dictionary if exploits { name : path } """
+
+        self._connect()
+
+        matches = self._conn.execute("SELECT {},{} FROM {} WHERE {} IN ({})"
+                                    .format(self.COL_DESCRIPTION, self.COL_FILE, self.TABLE_EXPLOIT, column, ", ".join("?" for _ in value)), 
+                                     value)
+
+        exploits = dict(matches.fetchall())
+
+        self._disconnect()
+
+        return exploits
+    
+    def find_by_text(exploits_dicts):
+        """ Returns dictionary if exploits { name : path } 
+        
+            exploits_dicts -- dictionary if exploits { name : path } 
+        """
+        return {}
 
     def _connect(self):
         self._conn = sqlite3.connect(self._db_file)
@@ -260,7 +277,8 @@ def delete_file(path):
     try:
         os.remove(path)
     except FileNotFoundError:
-        pass
+        return False
+    return True
 
 def ask_yes_no(message, default="N"):
     while True:
@@ -327,21 +345,22 @@ def main():
     # 2. Check if option to download new archive
 
     arg_archive = args["archive"]
-    arg_sqlite = args["sqlite"]
+    arg_sqlite = args["sqlite"] 
+    
+    exploits_db = SQLExploitsDB(EXPLOITS_CSV_PATH, EXPLOITS_DB_FILENAME)
 
-
-    sql_db = SQLExploitsDB(EXPLOITS_CSV_PATH)
-
+    # if user wants to download fresh exploits archive
     if arg_archive:
         download_archive()
         extract_archive()
-        sql_db.gen_db(EXPLOITS_DB)
-    elif arg_sqlite or not file_exists(EXPLOITS_DB):
+        delete_file(EXPLOITS_DB_FILENAME)
+        exploits_db.gen_db()
+    elif arg_sqlite or not file_exists(EXPLOITS_DB_FILENAME):
         if not file_exists(EXPLOITS_CSV_PATH):
             download_archive()
             extract_archive()
-        delete_file(EXPLOITS_DB)
-        sql_db.gen_db(EXPLOITS_DB)
+        delete_file(EXPLOITS_DB_FILENAME)
+        exploits_db.gen_db()
 
     # 3. Check if search query exists
 
@@ -352,7 +371,7 @@ def main():
 
     # 4. Search
 
-    pass
+    print(exploits_db.find(SQLExploitsDB.COL_AUTHOR, args[ParamNames.AUTHOR]))
 
 if __name__ == "__main__":
     main()
