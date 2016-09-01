@@ -18,6 +18,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import urllib.request
+import itertools
 import argparse
 import zipfile
 import sqlite3
@@ -138,14 +139,14 @@ class SQLExploitsDB(object):
 
     TABLE_EXPLOIT = "Exploit"
 
-    COL_ID = "id"
+    COL_ID = "id" # IN
     COL_FILE = "file"
-    COL_DESCRIPTION = "description"
-    COL_DATE = "date"
-    COL_AUTHOR = "author"
-    COL_PLATFORM = "platform"
-    COL_TYPE = "type"
-    COL_PORT = "port"
+    COL_DESCRIPTION = "description" # LIKE
+    COL_DATE = "date" # IN
+    COL_AUTHOR = "author" # IN
+    COL_PLATFORM = "platform" # IN
+    COL_TYPE = "type" # IN
+    COL_PORT = "port" # IN
 
     def __init__(self, source_csv, db_file):
         self._conn = None
@@ -158,14 +159,36 @@ class SQLExploitsDB(object):
         self._insert_data_from_csv()
         self._disconnect()
 
-    def find(self, column, value, text=""):
-        """ Returns dictionary if exploits { name : path } """
+    def find(self, column_values_dict, text=""):
+        """ Returns dictionary of exploits { name : path } searched by
+            "column_value_dict" that signifies { COL_* : (value, ) }
+        """
 
         self._connect()
 
-        matches = self._conn.execute("SELECT {},{} FROM {} WHERE {} IN ({})"
-                                    .format(self.COL_DESCRIPTION, self.COL_FILE, self.TABLE_EXPLOIT, column, ", ".join("?" for _ in value)), 
-                                     value)
+        query = "SELECT {},{} FROM {} WHERE ".format(self.COL_DESCRIPTION, self.COL_FILE, self.TABLE_EXPLOIT)
+
+        query_modified = False
+
+        for column, values in column_values_dict.items():
+            if query_modified:
+                query += " AND "
+                
+            if column == self.COL_DESCRIPTION:
+                column_values_dict[column] = "%{}%".format(values)
+                clause = "({} LIKE ?) ".format(column)
+
+            else:
+                clause = "({} IN ({})) ".format(column, ", ".join("?" for _ in values))
+
+            query += clause
+            query_modified = True
+
+        values = list(itertools.chain.from_iterable(itertools.repeat(v,1) if isinstance(v, str) else v for v in column_values_dict.values()))
+        #print(query)
+        #print(values)
+
+        matches = self._conn.execute(query, values)
 
         exploits = dict(matches.fetchall())
 
@@ -176,7 +199,7 @@ class SQLExploitsDB(object):
     def find_by_text(exploits_dicts):
         """ Returns dictionary if exploits { name : path } 
         
-            exploits_dicts -- dictionary if exploits { name : path } 
+            exploits_dicts -- dictionary of exploits { name : path } 
         """
         return {}
 
@@ -259,8 +282,8 @@ def make_params(args):
         Params.TITLE    : args[ParamNames.TITLE],
         Params.TEXT     : args[ParamNames.TEXT],
         Params.AUTHOR   : args[ParamNames.AUTHOR],
-        Params.PLATFORM : Platforms().getCode(args[ParamNames.PLATFORM]),
-        Params.TYPE     : Types().getCode(args[ParamNames.TYPE]),
+        Params.PLATFORM : args[ParamNames.PLATFORM],
+        Params.TYPE     : args[ParamNames.TYPE],
         Params.PORT     : args[ParamNames.PORT],
     }
     return params
@@ -371,7 +394,22 @@ def main():
 
     # 4. Search
 
-    print(exploits_db.find(SQLExploitsDB.COL_AUTHOR, args[ParamNames.AUTHOR]))
+    exploit_db_columns = { 
+                            Params.AUTHOR : SQLExploitsDB.COL_AUTHOR,
+                            Params.PLATFORM : SQLExploitsDB.COL_PLATFORM,
+                            Params.PORT : SQLExploitsDB.COL_PORT,
+                            Params.TITLE : SQLExploitsDB.COL_DESCRIPTION,
+                            Params.TYPE : SQLExploitsDB.COL_TYPE 
+                          }
+
+    search_args = dict([ (exploit_db_columns[param], values) for param,values in params.items() if values ])
+
+    results = exploits_db.find(search_args)
+
+    for title, filename in results.items():
+        print(title)
+        print(EXPLOITS_ARCHIVE_DIR + os.sep + filename)
+        print()
 
 if __name__ == "__main__":
     main()
