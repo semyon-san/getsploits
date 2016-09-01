@@ -10,7 +10,8 @@
  * Text inside exploits
 
 You can combine many search parameters to narrow down the results:
-```getsploits.py 0day --type local --platform linux windows```
+```
+getsploits.py 0day --type local --platform linux windows bsd```
  
 ## Usage help screen
 ```
