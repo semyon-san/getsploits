@@ -18,6 +18,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import urllib.request
+import concurrent.futures
 import itertools
 import argparse
 import zipfile
@@ -128,7 +129,7 @@ class Types(Param):
     TYPES = _VALUES = {
         "dos"       : "1",
         "local"     : "2",
-        "papers"    : "5",
+        #"papers"    : "5",
         "remote"    : "3",
         "shellcode" : "4",
         "webapps"   : "6"
@@ -192,16 +193,41 @@ class SQLExploitsDB(object):
 
         exploits = dict(matches.fetchall())
 
+        if text:
+            exploits = self.find_by_text(exploits, text)
+
         self._disconnect()
 
         return exploits
     
-    def find_by_text(exploits_dicts):
+    def find_by_text(self, exploits_dicts, text):
         """ Returns dictionary if exploits { name : path } 
         
             exploits_dicts -- dictionary of exploits { name : path } 
+            text -- what text to find inside exploits
         """
-        return {}
+
+        def find_text(exploit, text):
+            name = exploit[0]
+            path = EXPLOITS_ARCHIVE_DIR + os.sep + exploit[1]
+
+            content = open(path).read()
+            if re.search(text, content, re.IGNORECASE):
+                return exploit
+            return None
+
+        exploits = {}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_as_exploit = { executor.submit(find_text, exploit, text): exploit for exploit in exploits_dicts.items() }
+
+            for future in concurrent.futures.as_completed(future_as_exploit):
+                x = future_as_exploit[future]
+                exploit = future.result()
+                if exploit:
+                    exploits[exploit[0]] = exploit[1]
+
+        return exploits
 
     def _connect(self):
         self._conn = sqlite3.connect(self._db_file)
@@ -229,7 +255,7 @@ class SQLExploitsDB(object):
         self._commit()
     
     def _insert_data_from_csv(self):
-        print("INSERTING")
+        print("[*] INSERTING")
         c = self._conn.cursor()
 
         csv_file = open(self._csv_file)
@@ -252,15 +278,15 @@ def parse_args(argv):
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("-a", dest="archive", action="store_true", help="Download latest exploit archive")
+    parser.add_argument("-u", dest="update", action="store_true", help="Download the latest exploit archive")
     parser.add_argument("-s", dest="sqlite", action="store_true", help="Generate sqlite database")
-    parser.add_argument("-v", dest="verbose", action="store_true", help="Verbose mode")
-    parser.add_argument("-t", dest="threads", type=int, help="Number of threads", default=10)
+    #parser.add_argument("-v", dest="verbose", action="store_true", help="Verbose mode")
+    #parser.add_argument("-t", dest="threads", type=int, help="Number of threads", default=10)
 
     search = parser.add_argument_group("Search options")
 
-    search.add_argument(ParamNames.TITLE, help="Text inside title", nargs="?", default="")
-    search.add_argument("--text", dest=ParamNames.TEXT, help="Free text search", default="")
+    search.add_argument(ParamNames.TITLE, help="Text inside exploit title", nargs="?", default="")
+    search.add_argument("--text", dest=ParamNames.TEXT, help="Exploit content search", default="")
     search.add_argument("--type", dest=ParamNames.TYPE, help="Type", nargs="*",
         choices=Types.TYPES.keys(), default="")
 
@@ -360,6 +386,18 @@ def extract_archive():
 
 #################
 
+def display_results(results):
+    def bold(text):
+        BOLD = '\033[1m'
+        ENDC = '\033[0m'
+        return BOLD + text + ENDC
+
+    to_terminal = sys.stdout.isatty()
+
+    for title, filename in results.items():
+        print(bold(title) if to_terminal else title)
+        print(EXPLOITS_ARCHIVE_DIR + os.sep + filename + "\r\n")
+
 def main():
     # 1. Parse options
 
@@ -367,13 +405,13 @@ def main():
 
     # 2. Check if option to download new archive
 
-    arg_archive = args["archive"]
+    arg_update = args["update"]
     arg_sqlite = args["sqlite"] 
     
     exploits_db = SQLExploitsDB(EXPLOITS_CSV_PATH, EXPLOITS_DB_FILENAME)
 
     # if user wants to download fresh exploits archive
-    if arg_archive:
+    if arg_update:
         download_archive()
         extract_archive()
         delete_file(EXPLOITS_DB_FILENAME)
@@ -395,21 +433,19 @@ def main():
     # 4. Search
 
     exploit_db_columns = { 
-                            Params.AUTHOR : SQLExploitsDB.COL_AUTHOR,
+                            Params.AUTHOR   : SQLExploitsDB.COL_AUTHOR,
                             Params.PLATFORM : SQLExploitsDB.COL_PLATFORM,
-                            Params.PORT : SQLExploitsDB.COL_PORT,
-                            Params.TITLE : SQLExploitsDB.COL_DESCRIPTION,
-                            Params.TYPE : SQLExploitsDB.COL_TYPE 
+                            Params.PORT     : SQLExploitsDB.COL_PORT,
+                            Params.TITLE    : SQLExploitsDB.COL_DESCRIPTION,
+                            Params.TYPE     : SQLExploitsDB.COL_TYPE 
                           }
 
-    search_args = dict([ (exploit_db_columns[param], values) for param,values in params.items() if values ])
+    search_args = dict([ (exploit_db_columns[param], values) 
+        for param,values in params.items() if (param != Params.TEXT and values) ])
 
-    results = exploits_db.find(search_args)
+    results = exploits_db.find(search_args, params[Params.TEXT])
 
-    for title, filename in results.items():
-        print(title)
-        print(EXPLOITS_ARCHIVE_DIR + os.sep + filename)
-        print()
+    display_results(results)
 
 if __name__ == "__main__":
     main()
