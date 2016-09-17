@@ -167,38 +167,39 @@ class SQLExploitsDB(object):
             "column_value_dict" that signifies { COL_* : (value, ) }
         """
 
-        self._connect()
+        exploits = {}
 
-        query = "SELECT {},{} FROM {} WHERE ".format(self.COL_DESCRIPTION, self.COL_FILE, self.TABLE_EXPLOIT)
+        if column_values_dict:
+            self._connect()
 
-        query_modified = False
+            query = "SELECT {},{} FROM {} WHERE ".format(self.COL_DESCRIPTION, self.COL_FILE, self.TABLE_EXPLOIT)
 
-        for column, values in column_values_dict.items():
-            if query_modified:
-                query += " AND "
-                
-            if column == self.COL_DESCRIPTION:
-                column_values_dict[column] = "%{}%".format(values)
-                clause = "({} LIKE ?) ".format(column)
+            query_modified = False
 
-            else:
-                clause = "({} IN ({})) ".format(column, ", ".join("?" for _ in values))
+            for column, values in column_values_dict.items():
+                if query_modified:
+                    query += " AND "
+                    
+                if column == self.COL_DESCRIPTION:
+                    column_values_dict[column] = "%{}%".format(values)
+                    clause = "({} LIKE ?) ".format(column)
 
-            query += clause
-            query_modified = True
+                else:
+                    clause = "({} IN ({})) ".format(column, ", ".join("?" for _ in values))
 
-        values = list(itertools.chain.from_iterable(itertools.repeat(v,1) if isinstance(v, str) else v for v in column_values_dict.values()))
-        #print(query)
-        #print(values)
+                query += clause
+                query_modified = True
 
-        matches = self._conn.execute(query, values)
+            values = list(itertools.chain.from_iterable(itertools.repeat(v,1) if isinstance(v, str) else v for v in column_values_dict.values()))
 
-        exploits = dict(matches.fetchall())
+            matches = self._conn.execute(query, values)
+
+            exploits = dict(matches.fetchall())
+
+            self._disconnect()
 
         if text:
             exploits = self.find_by_text(exploits, text)
-
-        self._disconnect()
 
         return exploits
     
