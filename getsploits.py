@@ -19,6 +19,7 @@
 
 import urllib.request
 import concurrent.futures
+import subprocess
 import itertools
 import argparse
 import zipfile
@@ -34,6 +35,7 @@ EXPLOITS_ARCHIVE_DIR = "exploit-database-master"
 EXPLOITS_CSV_FILENAME = "files.csv"
 EXPLOITS_CSV_PATH = EXPLOITS_ARCHIVE_DIR + os.sep + EXPLOITS_CSV_FILENAME
 EXPLOITS_DB_FILENAME = "exploits.db"
+SEARCHSPLOIT_PATH = EXPLOITS_ARCHIVE_DIR+os.sep+"searchsploit"
 
 class ParamNames:
     TITLE    = "description"
@@ -255,7 +257,7 @@ class SQLExploitsDB(object):
         self._commit()
     
     def _insert_data_from_csv(self):
-        print("[*] INSERTING")
+        print("[*] Generating database")
         c = self._conn.cursor()
 
         csv_file = open(self._csv_file)
@@ -365,6 +367,13 @@ def copyfileobj_progress(fsrc, fdst, progress_callback=None):
         if progress_callback:
             progress_callback(copied, length)
 
+def update():
+    if file_exists(SEARCHSPLOIT_PATH):
+        subprocess.call([SEARCHSPLOIT_PATH, "-u"])
+        return
+    download_archive()
+    extract_archive()
+
 def download(src, dst):
     with urllib.request.urlopen(src) as in_stream, open(dst, "wb") as archive:
         copyfileobj_progress(in_stream, archive, print_progress)
@@ -412,8 +421,7 @@ def main():
 
     # if user wants to download fresh exploits archive
     if arg_update:
-        download_archive()
-        extract_archive()
+        update()
         delete_file(EXPLOITS_DB_FILENAME)
         exploits_db.gen_db()
     elif arg_sqlite or not file_exists(EXPLOITS_DB_FILENAME):
