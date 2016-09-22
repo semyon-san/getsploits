@@ -28,7 +28,6 @@ import csv
 import sys
 import re
 import os
-from collections import OrderedDict
 
 EXPLOITS_ARCHIVE_URL = "https://github.com/offensive-security/exploit-database/archive/master.zip"
 EXPLOITS_ARCHIVE_FILENAME = "exploits-archive.zip"
@@ -139,6 +138,13 @@ class Types(Param):
         "webapps"   : "6"
     }
 
+class Exploit(object):
+    def __init__(self, id, title, path, date):
+        self.id = id
+        self.title = title
+        self.path = path
+        self.date = date
+
 class SQLExploitsDB(object):
     """ Creates and queries sql databases """
 
@@ -165,7 +171,7 @@ class SQLExploitsDB(object):
         self._disconnect()
 
     def find(self, column_values_dict, text=""):
-        """ Returns dictionary of exploits { name : path } searched by
+        """ Returns a list of exploits list(Exploit) searched by
             "column_value_dict" that signifies { COL_* : (value, ) }
         """
 
@@ -197,10 +203,7 @@ class SQLExploitsDB(object):
 
             matches = self._conn.execute(query, values).fetchall()
 
-            if matches:
-                matches = ((m[0], (m[1], m[2], m[3])) for m in matches)
-
-            exploits = OrderedDict(matches)
+            exploits = [Exploit(m[0], m[1], m[2], m[3]) for m in matches]
 
             self._disconnect()
 
@@ -209,34 +212,33 @@ class SQLExploitsDB(object):
 
         return exploits
     
-    def find_by_text(self, exploits_dicts, text):
-        """ Returns dictionary if exploits { name : path } 
+    def find_by_text(self, exploits, text):
+        """ Returns list of exploits list(Exploit)
         
-            exploits_dicts -- dictionary of exploits { name : path } 
+            exploits -- list of exploits list(Exploit)
             text -- what text to find inside exploits
         """
 
         def find_text(exploit, text):
-            name = exploit[0]
-            path = EXPLOITS_ARCHIVE_DIR + os.sep + exploit[1]
+            path = EXPLOITS_ARCHIVE_DIR + os.sep + exploit.path
 
             content = open(path).read()
             if re.search(text, content, re.IGNORECASE):
                 return exploit
             return None
 
-        exploits = {}
+        new_exploits = []
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            future_as_exploit = { executor.submit(find_text, exploit, text): exploit for exploit in exploits_dicts.items() }
+            future_as_exploit = { executor.submit(find_text, exploit, text): exploit for exploit in exploits }
 
             for future in concurrent.futures.as_completed(future_as_exploit):
                 x = future_as_exploit[future]
                 exploit = future.result()
                 if exploit:
-                    exploits[exploit[0]] = exploit[1]
+                    new_exploits.append(exploit)
 
-        return exploits
+        return new_exploits
 
     def _connect(self):
         self._conn = sqlite3.connect(self._db_file)
@@ -412,16 +414,16 @@ def display_results(results):
 
     to_terminal = sys.stdout.isatty()
 
-    for id, (title, filename, date) in results.items():
-        id_date = "[ {} | {} ]".format(str(id), date)
+    for exploit in results:
+        id_date = "[ {} | {} ]".format(str(exploit.id), exploit.date)
         if to_terminal:
             print(bold(id_date))
-            print(bold(title))
+            print(bold(exploit.title))
         else:
             print(id_date)
-            print(title)
+            print(exploit.title)
 
-        print(EXPLOITS_ARCHIVE_DIR + os.sep + filename + "\r\n")
+        print(EXPLOITS_ARCHIVE_DIR + os.sep + exploit.path + "\r\n")
 
 def main():
     # 1. Parse options
