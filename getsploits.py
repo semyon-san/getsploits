@@ -28,6 +28,7 @@ import csv
 import sys
 import re
 import os
+from collections import OrderedDict
 
 EXPLOITS_ARCHIVE_URL = "https://github.com/offensive-security/exploit-database/archive/master.zip"
 EXPLOITS_ARCHIVE_FILENAME = "exploits-archive.zip"
@@ -44,9 +45,10 @@ class ParamNames:
     PLATFORM = "platform"
     TYPE     = "type"
     PORT     = "port"
+    ID       = "id"
 
 class Params:
-    TITLE, TEXT, AUTHOR, PLATFORM, TYPE, PORT = range(6)
+    TITLE, TEXT, AUTHOR, PLATFORM, TYPE, PORT, ID = range(7)
 
 class Param:
     _VALUES = {}
@@ -172,7 +174,7 @@ class SQLExploitsDB(object):
         if column_values_dict:
             self._connect()
 
-            query = "SELECT {},{} FROM {} WHERE ".format(self.COL_DESCRIPTION, self.COL_FILE, self.TABLE_EXPLOIT)
+            query = "SELECT {}, {},{},{} FROM {} WHERE ".format(self.COL_ID, self.COL_DESCRIPTION, self.COL_FILE, self.COL_DATE, self.TABLE_EXPLOIT)
 
             query_modified = False
 
@@ -189,12 +191,16 @@ class SQLExploitsDB(object):
 
                 query += clause
                 query_modified = True
+            query += " ORDER BY {} DESC".format(self.COL_DATE)
 
             values = list(itertools.chain.from_iterable(itertools.repeat(v,1) if isinstance(v, str) else v for v in column_values_dict.values()))
 
-            matches = self._conn.execute(query, values)
+            matches = self._conn.execute(query, values).fetchall()
 
-            exploits = dict(matches.fetchall())
+            if matches:
+                matches = ((m[0], (m[1], m[2], m[3])) for m in matches)
+
+            exploits = OrderedDict(matches)
 
             self._disconnect()
 
@@ -297,6 +303,7 @@ def parse_args(argv):
         choices=Platforms.PLATFORMS.keys(), default="")
     search.add_argument("--author", dest=ParamNames.AUTHOR, help="Author", nargs="*", default="")
     search.add_argument("--port", dest=ParamNames.PORT, help="Port number", nargs="*", default="")
+    search.add_argument("--id", dest=ParamNames.ID, help="Exploit ID", type=int, nargs="*", default=0)
 
     args = vars(parser.parse_args(argv))
 
@@ -314,6 +321,7 @@ def make_params(args):
         Params.PLATFORM : args[ParamNames.PLATFORM],
         Params.TYPE     : args[ParamNames.TYPE],
         Params.PORT     : args[ParamNames.PORT],
+        Params.ID       : args[ParamNames.ID],
     }
     return params
 
@@ -404,8 +412,15 @@ def display_results(results):
 
     to_terminal = sys.stdout.isatty()
 
-    for title, filename in results.items():
-        print(bold(title) if to_terminal else title)
+    for id, (title, filename, date) in results.items():
+        id_date = "[ {} | {} ]".format(str(id), date)
+        if to_terminal:
+            print(bold(id_date))
+            print(bold(title))
+        else:
+            print(id_date)
+            print(title)
+
         print(EXPLOITS_ARCHIVE_DIR + os.sep + filename + "\r\n")
 
 def main():
@@ -446,7 +461,8 @@ def main():
                             Params.PLATFORM : SQLExploitsDB.COL_PLATFORM,
                             Params.PORT     : SQLExploitsDB.COL_PORT,
                             Params.TITLE    : SQLExploitsDB.COL_DESCRIPTION,
-                            Params.TYPE     : SQLExploitsDB.COL_TYPE 
+                            Params.TYPE     : SQLExploitsDB.COL_TYPE,
+                            Params.ID       : SQLExploitsDB.COL_ID
                           }
 
     search_args = dict([ (exploit_db_columns[param], values) 
