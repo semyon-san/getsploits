@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 # Name:    getsploits
-# Version: 1.0
+# Version: 1.0.1
 # Author:  s3my0n
 
 # This program is free software: you can redistribute it and/or modify
